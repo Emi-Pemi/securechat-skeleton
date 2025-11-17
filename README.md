@@ -1,4 +1,239 @@
 
+SecureChat - Encrypted Chat System
+Assignment #2 - Information Security (CS-3002)
+FAST-NUCES, Fall 2025
+A console-based secure chat system implementing PKI, DH key exchange, AES-128 encryption, RSA signatures, and non-repudiation to achieve Confidentiality, Integrity, Authenticity, and Non-Repudiation (CIANR).
+
+🔗 Repository Link
+GitHub: https://github.com/YOUR_USERNAME/securechat-skeleton
+
+📋 Features Implemented
+✅ PKI Setup & Certificate Validation
+
+Self-signed Root CA generation
+Server and client X.509 certificates signed by CA
+Mutual certificate validation (signature, expiry, CN checks)
+Certificate fingerprinting for non-repudiation
+
+✅ Secure Authentication
+
+User registration with salted SHA-256 password hashing
+MySQL storage for user credentials
+Encrypted credential transmission using temporary DH key
+No plaintext passwords in transit or storage
+
+✅ Key Agreement
+
+Diffie-Hellman key exchange (RFC 3526 Group 14)
+Session key derivation: K = Trunc₁₆(SHA256(Ks))
+Separate keys for auth and chat phases
+
+✅ Encrypted Communication
+
+AES-128 CBC encryption with PKCS#7 padding
+Per-message RSA signatures over SHA256(seqno||ts||ct)
+Sequence number-based replay protection
+Tamper detection via signature verification
+
+✅ Non-Repudiation
+
+Append-only session transcripts
+Signed session receipts with transcript hash
+Offline verification of message integrity
+
+
+🛠️ Setup Instructions
+Prerequisites
+
+Python 3.8+
+MySQL 8.0+
+Git
+
+1. Clone Repository
+bashgit clone https://github.com/YOUR_USERNAME/securechat-skeleton.git
+cd securechat-skeleton
+2. Create Virtual Environment
+bashpython -m venv venv
+
+# Activate:
+# Windows:
+venv\Scripts\activate
+# Mac/Linux:
+source venv/bin/activate
+3. Install Dependencies
+bashpip install -r requirements.txt
+Required packages:
+
+cryptography - For AES, RSA, DH, X.509
+mysql-connector-python - For database
+python-dotenv - For environment variables
+pydantic - For message models
+
+4. Setup MySQL Database
+bash# Start MySQL (via Docker or local installation)
+docker run -d --name securechat-db \
+  -e MYSQL_ROOT_PASSWORD=rootpass \
+  -e MYSQL_DATABASE=securechat \
+  -e MYSQL_USER=scuser \
+  -e MYSQL_PASSWORD=scpass \
+  -p 3306:3306 mysql:8
+
+# Or use local MySQL and create database:
+mysql -u root -p
+CREATE DATABASE securechat;
+5. Configure Environment
+bashcp .env.example .env
+Edit .env:
+envDB_HOST=localhost
+DB_USER=scuser
+DB_PASSWORD=scpass
+DB_NAME=securechat
+SERVER_HOST=localhost
+SERVER_PORT=5000
+6. Initialize Database
+bashpython -m app.storage.db --init
+7. Generate Certificates
+bash# Generate Root CA
+python scripts/gen_ca.py
+
+# Generate Server Certificate
+python scripts/gen_cert.py server localhost localhost 127.0.0.1
+
+# Generate Client Certificate
+python scripts/gen_cert.py client client1
+Generated files:
+
+certs/ca_key.pem - CA private key (keep secret!)
+certs/ca_cert.pem - CA certificate
+certs/server_key.pem - Server private key
+certs/server_cert.pem - Server certificate
+certs/client_key.pem - Client private key
+certs/client_cert.pem - Client certificate
+
+
+🚀 Running the Application
+Start Server
+bashpython -m app.server
+Expected output:
+[+] Connected to MySQL database
+[+] Database schema initialized
+[+] Server initialized on localhost:5000
+[+] Server Certificate CN: CN=localhost,OU=Server,O=FAST-NUCES SecureChat...
+[*] Server listening on localhost:5000
+[*] Waiting for client connections...
+Start Client (in new terminal)
+bash# Activate venv first
+source venv/bin/activate  # or venv\Scripts\activate on Windows
+
+python -m app.client
+Expected output:
+[+] Client initialized
+[+] Client Certificate CN: CN=client1,OU=Client,O=FAST-NUCES SecureChat...
+[+] Connected to server at localhost:5000
+
+PHASE 1: CONTROL PLANE - Certificate Exchange
+[>] Sent HELLO to server
+[<] Received SERVER_HELLO
+[✓] Server certificate validated successfully
+Usage Flow
+
+Choose Authentication:
+
+   [?] Choose action:
+       1. Register new account
+       2. Login with existing account
+   Enter choice (1 or 2): 1
+
+Register (if new user):
+
+   Email: alice@example.com
+   Username: alice
+   Password: ********
+   [>] Sent REGISTER request
+   [<] Server response: Registration successful
+
+Chat:
+
+   PHASE 5: ENCRYPTED CHAT SESSION
+   [*] Chat session active!
+   [*] Type messages to send. Press Ctrl+C to end session.
+
+   Hello Server!
+   [You] Hello Server!
+   [Server] Hi Alice!
+
+End Session: Press Ctrl+C
+
+   PHASE 6: SESSION TEARDOWN - Non-Repudiation
+   [*] Transcript hash: a3f5c8d9e...
+   [✓] Session receipt generated and saved
+
+📁 Project Structure
+securechat-skeleton/
+├── app/
+│   ├── client.py              # Client implementation
+│   ├── server.py              # Server implementation
+│   ├── common/
+│   │   ├── protocol.py        # Pydantic message models
+│   │   └── utils.py           # Helper functions
+│   ├── crypto/
+│   │   ├── aes.py             # AES-128 CBC encryption
+│   │   ├── dh.py              # Diffie-Hellman key exchange
+│   │   ├── pki.py             # Certificate validation
+│   │   └── sign.py            # RSA digital signatures
+│   └── storage/
+│       ├── db.py              # MySQL user database
+│       └── transcript.py      # Session transcript management
+├── scripts/
+│   ├── gen_ca.py              # Root CA generation
+│   └── gen_cert.py            # Certificate generation
+├── certs/                     # Certificates (gitignored)
+├── transcripts/               # Session logs (gitignored)
+├── .env                       # Config (gitignored)
+├── .gitignore
+├── requirements.txt
+└── README.md
+
+🧪 Testing & Evidence
+Test 1: Wireshark - Encrypted Payloads
+bash# Start Wireshark capture on loopback
+sudo tcpdump -i lo -w securechat.pcap port 5000
+
+# Run server and client
+# After session, analyze:
+wireshark securechat.pcap
+
+# Filter: tcp.port == 5000
+# Verify: No plaintext passwords or messages visible
+Expected: All message content is base64-encoded ciphertext.
+Test 2: Invalid Certificate Rejection
+bash# Create self-signed cert (not by CA)
+openssl req -x509 -newkey rsa:2048 -keyout fake_key.pem -out fake_cert.pem -days 1 -nodes
+
+# Replace client_cert.pem with fake_cert.pem
+# Start client
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 # SecureChat – Assignment #2 (CS-3002 Information Security, Fall 2025)
 
 This repository is the **official code skeleton** for your Assignment #2.  
